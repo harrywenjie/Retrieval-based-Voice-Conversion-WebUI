@@ -5,6 +5,21 @@ from dotenv import load_dotenv
 now_dir = os.getcwd()
 sys.path.append(now_dir)
 load_dotenv()
+
+# PyTorch 2.6+ compatibility: Restore weights_only=False default behavior
+# This is required for loading models with custom classes (fairseq, RVC models)
+import torch
+_original_torch_load = torch.load
+
+def _torch_load_with_weights_only_false(*args, **kwargs):
+    """Wrapper for torch.load that sets weights_only=False by default for compatibility"""
+    if 'weights_only' not in kwargs:
+        kwargs['weights_only'] = False
+    return _original_torch_load(*args, **kwargs)
+
+# Monkey-patch torch.load globally
+torch.load = _torch_load_with_weights_only_false
+
 from infer.modules.vc.modules import VC
 from infer.modules.uvr5.modules import uvr
 from infer.lib.train.process_ckpt import (
@@ -1609,9 +1624,9 @@ with gr.Blocks(title="RVC WebUI") as app:
                 gr.Markdown(traceback.format_exc())
 
     if config.iscolab:
-        app.queue(concurrency_count=511, max_size=1022).launch(share=True)
+        app.queue(max_size=1022).launch(share=True)
     else:
-        app.queue(concurrency_count=511, max_size=1022).launch(
+        app.queue(max_size=1022).launch(
             server_name="0.0.0.0",
             inbrowser=not config.noautoopen,
             server_port=config.listen_port,

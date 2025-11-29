@@ -54,6 +54,15 @@ class RVC:
         """
         初始化
         """
+        # Initialize critical attributes first to prevent AttributeError on failure
+        self.tgt_sr = None
+        self.if_f0 = None
+        self.version = None
+        self.net_g = None
+        self.model = None
+        self.initialized = False
+        self.init_error = None
+        
         try:
             if config.dml == True:
 
@@ -186,7 +195,13 @@ class RVC:
             if last_rvc is not None and hasattr(last_rvc, "model_fcpe"):
                 self.device_fcpe = last_rvc.device_fcpe
                 self.model_fcpe = last_rvc.model_fcpe
-        except:
+            
+            # Mark initialization as successful
+            self.initialized = True
+        except Exception as e:
+            # Store error for later inspection
+            self.init_error = str(e)
+            printt(f"RVC initialization failed: {e}")
             printt(traceback.format_exc())
 
     def change_key(self, new_key):

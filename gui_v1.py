@@ -11,6 +11,21 @@ if sys.platform == "darwin":
 
 now_dir = os.getcwd()
 sys.path.append(now_dir)
+
+# PyTorch 2.6+ compatibility: Restore weights_only=False default behavior
+# This is required for loading models with custom classes (fairseq, RVC models)
+import torch
+_original_torch_load = torch.load
+
+def _torch_load_with_weights_only_false(*args, **kwargs):
+    """Wrapper for torch.load that sets weights_only=False by default for compatibility"""
+    if 'weights_only' not in kwargs:
+        kwargs['weights_only'] = False
+    return _original_torch_load(*args, **kwargs)
+
+# Monkey-patch torch.load globally
+torch.load = _torch_load_with_weights_only_false
+
 import multiprocessing
 
 flag_vc = False
@@ -718,6 +733,27 @@ if __name__ == "__main__":
                 self.config,
                 self.rvc if hasattr(self, "rvc") else None,
             )
+            
+            # Check if RVC initialization succeeded
+            if not getattr(self.rvc, 'initialized', False):
+                error_msg = getattr(self.rvc, 'init_error', 'Unknown initialization error')
+                sg.popup_error(
+                    i18n("RVC初始化失败") + f":\\n{error_msg}\\n\\n" +
+                    i18n("请确保所有必需的模型文件已下载。") + "\\n" +
+                    i18n("运行: python tools/download_models.py"),
+                    title=i18n("初始化错误")
+                )
+                return
+            
+            # Check critical attributes exist
+            if self.rvc.tgt_sr is None:
+                sg.popup_error(
+                    i18n("RVC初始化不完整。缺少目标采样率。") + "\\n" +
+                    i18n("请检查模型文件是否有效。"),
+                    title=i18n("初始化错误")
+                )
+                return
+            
             self.gui_config.samplerate = (
                 self.rvc.tgt_sr
                 if self.gui_config.sr_type == "sr_model"
