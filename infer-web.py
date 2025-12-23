@@ -2,9 +2,13 @@ import os
 import sys
 from dotenv import load_dotenv
 
+from compat import apply_post_import_patches, apply_pre_import_patches
+
 now_dir = os.getcwd()
 sys.path.append(now_dir)
 load_dotenv()
+
+apply_pre_import_patches()
 
 # PyTorch 2.6+ compatibility: Restore weights_only=False default behavior
 # This is required for loading models with custom classes (fairseq, RVC models)
@@ -34,6 +38,8 @@ from sklearn.cluster import MiniBatchKMeans
 import torch, platform
 import numpy as np
 import gradio as gr
+
+apply_post_import_patches()
 import faiss
 import fairseq
 import pathlib
