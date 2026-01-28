@@ -52,3 +52,4 @@ av
 FreeSimpleGUI
 sounddevice
 gradio_client==2.0.2
+pystray

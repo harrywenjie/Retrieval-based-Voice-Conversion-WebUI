@@ -97,6 +97,8 @@ if __name__ == "__main__":
     from queue import Empty
 
     import librosa
+    import pystray
+    from PIL import Image, ImageDraw
     from tools.torchgate import TorchGate
     import numpy as np
     import FreeSimpleGUI as sg
@@ -161,8 +163,92 @@ if __name__ == "__main__":
             self.input_devices_indices = None
             self.output_devices_indices = None
             self.stream = None
+            self.tray_icon = None
+            self.tray_image = None
+            self.window_hidden = False
+            self.window_iconified_event = getattr(sg, "WINDOW_ICONIFIED", None)
+            self.minimize_to_tray_enabled = False
             self.update_devices()
             self.launcher()
+
+        def _build_tray_image(self):
+            icon_size = 64
+            padding = 14
+            image = Image.new("RGBA", (icon_size, icon_size), (25, 118, 210, 255))
+            drawer = ImageDraw.Draw(image)
+            drawer.rectangle(
+                (padding, padding, icon_size - padding, icon_size - padding),
+                fill=(255, 255, 255, 255),
+            )
+            return image
+
+        def _ensure_tray_icon(self):
+            if self.tray_icon is not None:
+                return
+            if self.tray_image is None:
+                self.tray_image = self._build_tray_image()
+            menu = pystray.Menu(
+                pystray.MenuItem(
+                    i18n("显示窗口"),
+                    lambda icon, item: self.window.write_event_value(
+                        "-TRAY_RESTORE-", None
+                    ),
+                    default=True,
+                ),
+                pystray.MenuItem(
+                    i18n("退出"),
+                    lambda icon, item: self.window.write_event_value(
+                        "-TRAY_EXIT-", None
+                    ),
+                ),
+            )
+            self.tray_icon = pystray.Icon("rvc_gui", self.tray_image, "RVC GUI", menu)
+            self.tray_icon.run_detached()
+
+        def _destroy_tray_icon(self):
+            if self.tray_icon is not None:
+                self.tray_icon.stop()
+                self.tray_icon = None
+
+        def minimize_to_tray(self):
+            if self.window_hidden:
+                return
+            self.window_hidden = True
+            if hasattr(self.window, "TKroot"):
+                self.window.TKroot.withdraw()
+            else:
+                try:
+                    self.window.hide()
+                except Exception:
+                    pass
+            self._ensure_tray_icon()
+
+        def restore_from_tray(self):
+            if not self.window_hidden:
+                return
+            self.window_hidden = False
+            if hasattr(self.window, "TKroot"):
+                self.window.TKroot.deiconify()
+            else:
+                try:
+                    self.window.un_hide()
+                except Exception:
+                    pass
+            try:
+                self.window.bring_to_front()
+            except Exception:
+                pass
+            self._destroy_tray_icon()
+
+        def _maybe_iconified(self):
+            if self.window_hidden:
+                return False
+            if hasattr(self.window, "TKroot"):
+                try:
+                    return str(self.window.TKroot.state()) == "iconic"
+                except Exception:
+                    return False
+            return False
 
         def load(self):
             try:
@@ -541,9 +627,30 @@ if __name__ == "__main__":
                     sg.Text("0", key="delay_time"),
                     sg.Text(i18n("推理时间(ms):")),
                     sg.Text("0", key="infer_time"),
+                    sg.Checkbox(
+                        i18n("最小化到托盘"),
+                        key="minimize_to_tray",
+                        default=False,
+                        enable_events=True,
+                    ),
                 ],
             ]
-            self.window = sg.Window("RVC - GUI", layout=layout, finalize=True)
+            self.window = sg.Window(
+                "RVC - GUI",
+                layout=layout,
+                enable_window_config_events=True,
+                finalize=True,
+            )
+            if hasattr(self.window, "TKroot"):
+                try:
+                    self.window.TKroot.bind(
+                        "<Unmap>",
+                        lambda event: self.window.write_event_value(
+                            "-TK-ICONIFY-", None
+                        ),
+                    )
+                except Exception:
+                    pass
             self.event_handler()
 
         def event_handler(self):
@@ -551,6 +658,27 @@ if __name__ == "__main__":
             while True:
                 event, values = self.window.read()
                 if event == sg.WINDOW_CLOSED:
+                    self.stop_stream()
+                    self._destroy_tray_icon()
+                    exit()
+                if event == "minimize_to_tray":
+                    self.minimize_to_tray_enabled = values.get(
+                        "minimize_to_tray", False
+                    )
+                if (
+                    self.minimize_to_tray_enabled
+                    and (event == self.window_iconified_event or self._maybe_iconified())
+                ):
+                    self.minimize_to_tray()
+                    continue
+                if event == "-TK-ICONIFY-" and self.minimize_to_tray_enabled:
+                    self.minimize_to_tray()
+                    continue
+                if event == "-TRAY_RESTORE-":
+                    self.restore_from_tray()
+                    continue
+                if event == "-TRAY_EXIT-":
+                    self._destroy_tray_icon()
                     self.stop_stream()
                     exit()
                 if event == "reload_devices" or event == "sg_hostapi":
