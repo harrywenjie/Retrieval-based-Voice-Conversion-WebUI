@@ -97,8 +97,6 @@ if __name__ == "__main__":
     from queue import Empty
 
     import librosa
-    import pystray
-    from PIL import Image, ImageDraw
     from tools.torchgate import TorchGate
     import numpy as np
     import FreeSimpleGUI as sg
@@ -174,6 +172,12 @@ if __name__ == "__main__":
         def _build_tray_image(self):
             icon_size = 64
             padding = 14
+            try:
+                from PIL import Image, ImageDraw
+            except Exception as exc:  # pragma: no cover
+                printt("Tray icon build failed: %s", exc)
+                self.minimize_to_tray_enabled = False
+                return None
             image = Image.new("RGBA", (icon_size, icon_size), (25, 118, 210, 255))
             drawer = ImageDraw.Draw(image)
             drawer.rectangle(
@@ -185,8 +189,17 @@ if __name__ == "__main__":
         def _ensure_tray_icon(self):
             if self.tray_icon is not None:
                 return
+            try:
+                # Lazy import to avoid touching tray stack when not needed
+                import pystray
+            except Exception as exc:  # pragma: no cover
+                printt("Tray init failed: %s", exc)
+                self.minimize_to_tray_enabled = False
+                return
             if self.tray_image is None:
                 self.tray_image = self._build_tray_image()
+            if self.tray_image is None:
+                return
             menu = pystray.Menu(
                 pystray.MenuItem(
                     i18n("显示窗口"),
@@ -665,15 +678,15 @@ if __name__ == "__main__":
                     self.minimize_to_tray_enabled = values.get(
                         "minimize_to_tray", False
                     )
-                if (
-                    self.minimize_to_tray_enabled
-                    and (event == self.window_iconified_event or self._maybe_iconified())
-                ):
-                    self.minimize_to_tray()
-                    continue
-                if event == "-TK-ICONIFY-" and self.minimize_to_tray_enabled:
-                    self.minimize_to_tray()
-                    continue
+                if self.minimize_to_tray_enabled:
+                    iconified = False
+                    if self.window_iconified_event is not None:
+                        iconified = iconified or event == self.window_iconified_event
+                    iconified = iconified or event == "-TK-ICONIFY-"
+                    iconified = iconified or self._maybe_iconified()
+                    if iconified:
+                        self.minimize_to_tray()
+                        continue
                 if event == "-TRAY_RESTORE-":
                     self.restore_from_tray()
                     continue
@@ -791,8 +804,8 @@ if __name__ == "__main__":
                     self.gui_config.use_pv = values["use_pv"]
                 elif event in ["vc", "im"]:
                     self.function = event
-                elif event == "stop_vc" or event != "start_vc":
-                    # Other parameters do not support hot update
+                elif event == "stop_vc":
+                    # Explicit user stop; ignore other window/config events
                     self.stop_stream()
 
         def set_values(self, values):
